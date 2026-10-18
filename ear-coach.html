@@ -1,0 +1,791 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>귓속 코치</title>
+<style>
+:root{
+  --bg:#f5f4f0;--card:#ffffff;--ink:#1c1c1e;--muted:#6c6c72;--line:#e2e0da;
+  --accent:#2f6fed;--idle:#8a8a90;--listen:#e5484d;--think:#c98a00;--speak:#1f9d55;--done:#5b5bd6;
+}
+@media (prefers-color-scheme:dark){
+  :root{--bg:#121214;--card:#1d1d21;--ink:#f1f1f3;--muted:#9b9ba3;--line:#2d2d33;--accent:#6e9bff;--idle:#7a7a82;}
+}
+*{box-sizing:border-box}
+html,body{margin:0;background:var(--bg);color:var(--ink)}
+body{font:16px/1.5 system-ui,-apple-system,"Apple SD Gothic Neo","Noto Sans KR",sans-serif}
+main{max-width:640px;margin:0 auto;padding:16px 16px 48px}
+h1{font-size:20px;margin:4px 0 12px}
+.card{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:14px;margin:12px 0}
+.label{font-size:13px;color:var(--muted);margin:0 0 6px}
+#status{display:flex;align-items:center;gap:12px;font-size:26px;font-weight:700}
+#dot{width:18px;height:18px;border-radius:50%;background:var(--idle);flex:none}
+#dot.listening{background:var(--listen);animation:pulse 1s infinite}
+#dot.thinking{background:var(--think);animation:pulse .6s infinite}
+#dot.speaking{background:var(--speak)}
+#dot.waiting{background:var(--speak);opacity:.55}
+#dot.done{background:var(--done)}
+@keyframes pulse{50%{opacity:.35}}
+#msg{margin-top:6px;color:var(--muted);font-size:14px;min-height:21px}
+#msg.err{color:var(--listen)}
+#heard{font-size:17px;white-space:pre-wrap;min-height:26px}
+#sentences{margin:0;padding-left:22px}
+#sentences li{padding:6px 4px;border-radius:8px;font-size:18px}
+#sentences li.cur{background:color-mix(in srgb,var(--speak) 18%,transparent);font-weight:700}
+.btns{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+button{font:inherit;border:1px solid var(--line);background:var(--card);color:var(--ink);border-radius:10px;padding:12px 10px;cursor:pointer}
+button.primary{background:var(--accent);border-color:var(--accent);color:#fff;font-weight:700}
+button:active{transform:translateY(1px)}
+#startBtn{width:100%;font-size:20px;padding:18px}
+.kbd{font-size:12px;color:var(--muted);display:block}
+details summary{cursor:pointer;font-weight:700;padding:4px 0}
+.field{margin:12px 0}
+.field label{display:block;font-size:14px;margin-bottom:4px}
+input,select,textarea{font:inherit;width:100%;padding:10px;border:1px solid var(--line);border-radius:8px;background:var(--bg);color:var(--ink)}
+textarea{min-height:70px}
+.hint{font-size:13px;color:var(--muted);margin-top:4px}
+.maprow{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:8px 0;border-top:1px solid var(--line)}
+.maprow:first-child{border-top:0}
+.maprow .b{font-size:13px;color:var(--muted)}
+.maprow button{padding:8px 12px;flex:none}
+#learnBanner{display:none;background:var(--think);color:#000;padding:12px;border-radius:10px;font-weight:700;margin-top:8px}
+.row{display:flex;gap:8px}
+.row>*{flex:1}
+</style>
+</head>
+<body>
+<main>
+  <h1>귓속 코치 · 테스트</h1>
+
+  <div class="card" id="startCard">
+    <button id="startBtn" class="primary">시작하기</button>
+    <div class="hint">처음 한 번 눌러야 소리와 마이크가 켜져요. 화면은 켜둔 채로 두세요.</div>
+  </div>
+
+  <div class="card">
+    <div id="status"><span id="dot"></span><span id="statusText">대기</span></div>
+    <div id="msg"></div>
+  </div>
+
+  <div class="card">
+    <p class="label">고객이 한 말</p>
+    <div id="heard">—</div>
+  </div>
+
+  <div class="card">
+    <p class="label">따라 말할 문장</p>
+    <ol id="sentences"></ol>
+  </div>
+
+  <div class="card">
+    <p class="label">화면 버튼 (PC 테스트용)</p>
+    <div class="btns" id="screenBtns"></div>
+  </div>
+
+  <div class="card">
+    <details>
+      <summary>글자로 테스트하기</summary>
+      <div class="field">
+        <label for="typed">고객이 했다고 치고 영어 문장 입력</label>
+        <textarea id="typed" placeholder="Hi, I can't log in to my account. What should I do?"></textarea>
+      </div>
+      <button id="typedBtn">이 문장으로 답변 만들기</button>
+    </details>
+  </div>
+
+  <div class="card">
+    <details id="settings">
+      <summary>설정</summary>
+
+      <div class="field">
+        <label for="apiKey">OpenAI API 키</label>
+        <input id="apiKey" type="password" autocomplete="off" placeholder="sk-...">
+        <div class="hint">이 기기의 브라우저에만 저장돼요. 파일 안에는 들어가지 않아요.</div>
+      </div>
+
+      <div class="field">
+        <label for="mic">마이크</label>
+        <select id="mic"><option value="">기본 마이크</option></select>
+        <div class="hint">목록이 비어 있으면 '시작하기'를 먼저 눌러 주세요. 버즈 마이크가 있으면 골라 보세요.</div>
+      </div>
+
+      <div class="row">
+        <div class="field">
+          <label for="rate">읽기 속도 <span id="rateVal"></span></label>
+          <input id="rate" type="range" min="0.5" max="1.2" step="0.05">
+        </div>
+        <div class="field">
+          <label for="voice">목소리</label>
+          <select id="voice"></select>
+        </div>
+      </div>
+      <button id="voiceTest">목소리 들어보기</button>
+
+      <div class="field">
+        <label>버튼 연결</label>
+        <div id="mapList"></div>
+        <div id="learnBanner"></div>
+        <div class="hint">'바꾸기'를 누른 뒤 8BitDo 버튼을 누르면 그 버튼이 연결돼요. 키보드 모드, 게임패드 모드 둘 다 돼요.</div>
+        <button id="mapReset" style="margin-top:8px">버튼 연결 기본값으로</button>
+      </div>
+
+      <div class="row">
+        <div class="field">
+          <label for="llmModel">답변 모델</label>
+          <input id="llmModel" placeholder="자동">
+        </div>
+        <div class="field">
+          <label for="sttModel">받아쓰기 모델</label>
+          <input id="sttModel" placeholder="자동">
+        </div>
+      </div>
+      <div class="hint">비워두면 자동으로 골라요. 기본 이름이 안 되면 계정에서 쓸 수 있는 모델을 찾아서 써요.</div>
+    </details>
+  </div>
+
+  <div class="card">
+    <p class="label">효과음</p>
+    <div class="hint">
+      띵 = 듣기 시작 · 똑똑 = 듣기 끝, 답변 만드는 중(작은 틱 반복) ·
+      띠링 = 답변 준비됨 · 내려가는 두 음 = 마지막 문장 끝 · 부- = 오류 · 세 음 올라감 = 초기화
+    </div>
+  </div>
+</main>
+
+<script>
+(() => {
+  'use strict';
+
+  /* ---------- storage ---------- */
+  // falls back to memory when the browser blocks storage (e.g. a file opened straight from Downloads)
+  const mem = Object.create(null);
+  const store = {
+    get(k, d = '') {
+      try { const v = localStorage.getItem('ec_' + k); if (v !== null) return v; } catch {}
+      return k in mem ? mem[k] : d;
+    },
+    set(k, v) { mem[k] = v; try { localStorage.setItem('ec_' + k, v); } catch {} },
+    del(k) { delete mem[k]; try { localStorage.removeItem('ec_' + k); } catch {} },
+  };
+
+  /* ---------- actions & bindings ---------- */
+  const ACTIONS = {
+    listen: '듣기 시작',
+    answer: '듣기 끝 · 답변',
+    next:   '다음 문장',
+    repeat: '지금 문장 다시',
+    reset:  '새 고객 (초기화)',
+  };
+  const DEFAULT_MAP = {
+    listen: [{ t: 'key', c: 'KeyA' }, { t: 'key', c: 'Digit1' }, { t: 'pad', i: 0 }],
+    answer: [{ t: 'key', c: 'KeyB' }, { t: 'key', c: 'Digit2' }, { t: 'pad', i: 1 }],
+    next:   [{ t: 'key', c: 'ArrowRight' }, { t: 'key', c: 'Digit3' }, { t: 'pad', i: 15 }],
+    repeat: [{ t: 'key', c: 'ArrowLeft' }, { t: 'key', c: 'Digit4' }, { t: 'pad', i: 14 }],
+    reset:  [{ t: 'key', c: 'Escape' }, { t: 'key', c: 'Digit0' }, { t: 'pad', i: 9 }],
+  };
+  let map = loadMap();
+
+  function loadMap() {
+    try {
+      const m = JSON.parse(store.get('map', ''));
+      if (m && typeof m === 'object' && Object.keys(ACTIONS).every(a => Array.isArray(m[a]))) return m;
+    } catch {}
+    return JSON.parse(JSON.stringify(DEFAULT_MAP));
+  }
+  function saveMap() { store.set('map', JSON.stringify(map)); }
+  const sameBinding = (a, b) => a.t === b.t && (a.t === 'key' ? a.c === b.c : a.i === b.i);
+  const bindingLabel = b => b.t === 'key' ? b.c.replace(/^Key/, '').replace(/^Digit/, '') : '패드 ' + b.i;
+  function actionFor(binding) {
+    for (const a of Object.keys(map)) if (map[a].some(b => sameBinding(b, binding))) return a;
+    return null;
+  }
+
+  /* ---------- state ---------- */
+  let state = 'idle';
+  let started = false;
+  let sentences = [];
+  let idx = 0;
+  let history = [];
+  let stream = null, rec = null, chunks = [], recTimer = null;
+  let abortCtl = null;
+  let learning = null;
+  let wakeLock = null;
+
+  const $ = s => document.querySelector(s);
+  const STATE_TEXT = {
+    idle: '대기', listening: '듣는 중', thinking: '답변 만드는 중',
+    speaking: '읽어주는 중', waiting: '따라 말하기', done: '답변 끝',
+  };
+  function setState(s) {
+    state = s;
+    $('#dot').className = s;
+    $('#statusText').textContent = STATE_TEXT[s] || s;
+  }
+  function note(text, isErr = false) {
+    const m = $('#msg');
+    m.textContent = text || '';
+    m.className = isErr ? 'err' : '';
+  }
+  function fail(text) {
+    stopTicks();
+    note(text, true);
+    setState('idle');
+    SFX.error();
+  }
+
+  /* ---------- sound effects ---------- */
+  let actx = null;
+  function ensureAudio() {
+    try {
+      if (!actx) { const C = window.AudioContext || window.webkitAudioContext; if (C) actx = new C(); }
+      if (actx && actx.state === 'suspended') actx.resume();
+    } catch {}
+  }
+  function tone(freqs, dur = 0.12, gap = 0.05, type = 'sine', vol = 0.22) {
+    if (!actx) return Promise.resolve();
+    let t = actx.currentTime + 0.02;
+    for (const f of freqs) {
+      const o = actx.createOscillator(), g = actx.createGain();
+      o.type = type; o.frequency.value = f;
+      g.gain.setValueAtTime(0, t);
+      g.gain.linearRampToValueAtTime(vol, t + 0.01);
+      g.gain.linearRampToValueAtTime(0, t + dur);
+      o.connect(g).connect(actx.destination);
+      o.start(t); o.stop(t + dur + 0.02);
+      t += dur + gap;
+    }
+    const wait = (t - actx.currentTime) * 1000;
+    return new Promise(r => setTimeout(r, Math.max(0, wait)));
+  }
+  const SFX = {
+    listen: () => tone([880], 0.16),
+    stop:   () => tone([520, 520], 0.08, 0.07),
+    tick:   () => tone([1200], 0.03, 0, 'sine', 0.08),
+    ready:  () => tone([660, 990], 0.1, 0.03),
+    end:    () => tone([660, 440], 0.13, 0.04),
+    error:  () => tone([170], 0.4, 0, 'square', 0.12),
+    reset:  () => tone([440, 660, 880], 0.07, 0.02),
+  };
+  let tickTimer = null;
+  function startTicks() { stopTicks(); tickTimer = setInterval(() => SFX.tick(), 1200); }
+  function stopTicks() { if (tickTimer) clearInterval(tickTimer); tickTimer = null; }
+
+  /* ---------- speech output ---------- */
+  const synth = window.speechSynthesis;
+  let voices = [];
+  function loadVoices() {
+    if (!synth) return;
+    voices = synth.getVoices().filter(v => /^en[-_]/i.test(v.lang));
+    const sel = $('#voice');
+    const saved = store.get('voice');
+    sel.innerHTML = '';
+    if (!voices.length) { sel.innerHTML = '<option value="">기본 영어 목소리</option>'; return; }
+    for (const v of voices) {
+      const o = document.createElement('option');
+      o.value = v.name; o.textContent = v.name + ' (' + v.lang + ')';
+      if (v.name === saved) o.selected = true;
+      sel.appendChild(o);
+    }
+    if (!saved) {
+      const us = voices.find(v => /en[-_]US/i.test(v.lang));
+      if (us) sel.value = us.name;
+    }
+  }
+  if (synth) { loadVoices(); synth.onvoiceschanged = loadVoices; }
+
+  function speak(text) {
+    return new Promise(res => {
+      if (!synth) { res(); return; }
+      synth.cancel();
+      setTimeout(() => {
+        const u = new SpeechSynthesisUtterance(text);
+        u.lang = 'en-US';
+        const v = voices.find(x => x.name === $('#voice').value) || voices.find(x => /en[-_]US/i.test(x.lang));
+        if (v) u.voice = v;
+        u.rate = parseFloat(store.get('rate', '0.8')) || 0.8;
+        let doneFired = false;
+        const done = () => { if (!doneFired) { doneFired = true; res(); } };
+        u.onend = done; u.onerror = done;
+        // safety net: some Android builds never fire onend
+        setTimeout(done, 1500 + text.length * 160 / u.rate);
+        synth.speak(u);
+      }, 60);
+    });
+  }
+  function stopSpeaking() { try { synth && synth.cancel(); } catch {} }
+
+  /* ---------- OpenAI calls ---------- */
+  const getKey = () => store.get('key').trim();
+
+  async function apiError(r) {
+    let detail = '';
+    try { const j = await r.json(); detail = (j.error && j.error.message) || ''; } catch {}
+    let text;
+    if (r.status === 401) text = 'API 키가 맞지 않아요.';
+    else if (r.status === 429) text = '사용 한도에 걸렸거나 크레딧이 부족해요.';
+    else if (r.status === 404) text = '모델을 찾을 수 없어요.';
+    else text = '요청 실패 (' + r.status + ').';
+    const e = new Error(text + (detail ? ' ' + detail : ''));
+    e.status = r.status;
+    return e;
+  }
+
+  /* model choice: user setting → last model that worked → defaults → whatever the account lists */
+  let modelIds = null;
+  async function listModels(signal) {
+    if (modelIds) return modelIds;
+    try {
+      const r = await fetch('https://api.openai.com/v1/models', { headers: { Authorization: 'Bearer ' + getKey() }, signal });
+      if (!r.ok) return [];
+      const j = await r.json();
+      modelIds = (j.data || []).map(m => m.id);
+    } catch { modelIds = []; }
+    return modelIds;
+  }
+  function prefer(ids, patterns, exclude) {
+    const pool = ids.filter(id => !(exclude && exclude.test(id)));
+    for (const p of patterns) {
+      const hits = pool.filter(id => p.test(id)).sort((a, b) => a.length - b.length);
+      if (hits.length) return hits[0];
+    }
+    return null;
+  }
+  async function withModels(kind, defaults, patterns, exclude, call, signal) {
+    const setting = store.get(kind).trim();
+    const auto = store.get(kind + '_auto').trim();
+    const tried = new Set();
+    let lastErr = null;
+    const attempt = async m => {
+      tried.add(m);
+      const res = await call(m);
+      if (res.ok) { if (m !== setting) store.set(kind + '_auto', m); return res; }
+      lastErr = res.err;
+      return res;
+    };
+    for (const m of [setting, auto, ...defaults]) {
+      if (!m || tried.has(m)) continue;
+      const res = await attempt(m);
+      if (res.ok) return res.value;
+      if (!res.retry) throw lastErr;
+    }
+    const pick = prefer((await listModels(signal)).filter(id => !tried.has(id)), patterns, exclude);
+    if (pick) {
+      const res = await attempt(pick);
+      if (res.ok) return res.value;
+    }
+    throw lastErr || new Error('쓸 수 있는 모델을 찾지 못했어요.');
+  }
+
+  async function transcribe(blob, signal) {
+    const type = blob.type || '';
+    const ext = type.includes('mp4') ? 'm4a' : type.includes('ogg') ? 'ogg' : 'webm';
+    return withModels('stt_model',
+      ['gpt-4o-mini-transcribe', 'whisper-1'],
+      [/mini.*transcribe/, /transcribe/, /^whisper/],
+      /realtime|diarize/,
+      async m => {
+        const fd = new FormData();
+        fd.append('file', blob, 'speech.' + ext);
+        fd.append('model', m);
+        fd.append('language', 'en');
+        const r = await fetch('https://api.openai.com/v1/audio/transcriptions', {
+          method: 'POST', headers: { Authorization: 'Bearer ' + getKey() }, body: fd, signal,
+        });
+        if (r.ok) { const j = await r.json(); return { ok: true, value: (j.text || '').trim() }; }
+        return { ok: false, err: await apiError(r), retry: r.status === 404 || r.status === 400 };
+      }, signal);
+  }
+
+  const SYSTEM = [
+    'You are a whisper coach for a customer support agent whose English is basic.',
+    'The agent hears your words in an earphone and repeats them to the customer, one sentence at a time.',
+    'Write what the agent should say next to the customer.',
+    'Rules:',
+    '- Very simple English. Common, everyday words only.',
+    '- 1 to 3 sentences. Each sentence has 10 words or fewer.',
+    '- Polite and warm. No lists, emojis, symbols, numbers in digits, or abbreviations.',
+    '- Answer from general knowledge. Do not invent company-specific facts such as prices, orders, accounts, or policies.',
+    '  If such facts are needed, say you will check, for example: "Let me check that for you." "Please wait a moment."',
+    '- If the customer\'s words are unclear, empty, or noise, ask them politely to say it again.',
+    'Return only JSON in this shape: {"sentences": ["...", "..."]}',
+  ].join('\n');
+
+  function cleanSentences(raw) {
+    let arr = [];
+    try {
+      const j = JSON.parse(raw);
+      if (Array.isArray(j)) arr = j;
+      else if (j && Array.isArray(j.sentences)) arr = j.sentences;
+    } catch {
+      arr = String(raw).split(/(?<=[.!?])\s+/);
+    }
+    arr = arr.map(s => String(s).replace(/^["'\s-]+|["'\s]+$/g, '').trim()).filter(Boolean);
+    return arr.slice(0, 4);
+  }
+
+  async function makeAnswer(customerText, signal) {
+    const messages = [
+      { role: 'system', content: SYSTEM },
+      ...history.slice(-12),
+      { role: 'user', content: 'Customer said: "' + customerText + '"' },
+    ];
+    return withModels('llm_model',
+      ['gpt-6-luna', 'gpt-4.1-mini', 'gpt-4o-mini'],
+      [/^gpt-[\d.]+-luna$/, /^gpt-[\d.]+-luna/, /^gpt-[\d.]+-mini$/, /^gpt-[\d.]+-mini/, /^gpt-\d/],
+      /audio|realtime|transcribe|tts|search|image|live|embed|codex|instruct/,
+      async m => {
+        const r = await fetch('https://api.openai.com/v1/chat/completions', {
+          method: 'POST',
+          headers: { Authorization: 'Bearer ' + getKey(), 'Content-Type': 'application/json' },
+          body: JSON.stringify({ model: m, messages, response_format: { type: 'json_object' } }),
+          signal,
+        });
+        if (!r.ok) return { ok: false, err: await apiError(r), retry: r.status === 404 || r.status === 400 };
+        const j = await r.json();
+        const content = (j.choices && j.choices[0] && j.choices[0].message && j.choices[0].message.content) || '';
+        const s = cleanSentences(content);
+        if (s.length) return { ok: true, value: s };
+        return { ok: false, err: new Error('답변이 비어 있어요.'), retry: true };
+      }, signal);
+  }
+
+  /* ---------- rendering ---------- */
+  function renderSentences() {
+    const ol = $('#sentences');
+    ol.innerHTML = '';
+    sentences.forEach((s, i) => {
+      const li = document.createElement('li');
+      li.textContent = s;
+      if (i === idx) li.className = 'cur';
+      ol.appendChild(li);
+    });
+  }
+
+  /* ---------- core flow ---------- */
+  function pickMime() {
+    if (!window.MediaRecorder) return '';
+    const c = ['audio/webm;codecs=opus', 'audio/webm', 'audio/mp4', 'audio/ogg;codecs=opus'];
+    return c.find(t => MediaRecorder.isTypeSupported(t)) || '';
+  }
+
+  async function openMic() {
+    const base = { echoCancellation: false, noiseSuppression: false, autoGainControl: true };
+    const id = store.get('mic');
+    if (id) {
+      try { return await navigator.mediaDevices.getUserMedia({ audio: { ...base, deviceId: { exact: id } } }); }
+      catch { note('고른 마이크를 열 수 없어 기본 마이크를 써요.'); }
+    }
+    return await navigator.mediaDevices.getUserMedia({ audio: base });
+  }
+
+  function cancelWork() {
+    if (abortCtl) { abortCtl.abort(); abortCtl = null; }
+    stopTicks();
+  }
+
+  async function startListen() {
+    if (!getKey()) { fail('설정에서 OpenAI API 키를 먼저 넣어 주세요.'); return; }
+    if (!navigator.mediaDevices || !window.MediaRecorder) { fail('이 브라우저는 녹음을 지원하지 않아요.'); return; }
+    if (state === 'listening') return;
+    cancelWork();
+    stopSpeaking();
+    note('');
+    try { stream = await openMic(); }
+    catch (e) { fail('마이크를 열 수 없어요: ' + e.message); return; }
+    chunks = [];
+    const mime = pickMime();
+    try { rec = new MediaRecorder(stream, mime ? { mimeType: mime } : undefined); }
+    catch (e) { releaseMic(); fail('녹음을 시작할 수 없어요: ' + e.message); return; }
+    rec.ondataavailable = e => { if (e.data && e.data.size) chunks.push(e.data); };
+    rec.start(250);
+    setState('listening');
+    SFX.listen();
+    clearTimeout(recTimer);
+    recTimer = setTimeout(() => { if (state === 'listening') finishListen(); }, 90000);
+  }
+
+  function releaseMic() {
+    if (stream) stream.getTracks().forEach(t => t.stop());
+    stream = null;
+  }
+
+  async function finishListen() {
+    if (state !== 'listening' || !rec) { SFX.error(); note('먼저 듣기 시작 버튼을 눌러 주세요.', true); return; }
+    clearTimeout(recTimer);
+    const r = rec; rec = null;
+    const blob = await new Promise(res => {
+      r.onstop = () => res(new Blob(chunks, { type: r.mimeType || 'audio/webm' }));
+      try { r.stop(); } catch { res(new Blob(chunks, { type: 'audio/webm' })); }
+    });
+    releaseMic();
+    setState('thinking');
+    await SFX.stop();
+    if (blob.size < 2000) { fail('녹음된 소리가 거의 없어요. 마이크를 확인해 주세요.'); return; }
+    abortCtl = new AbortController();
+    const signal = abortCtl.signal;
+    startTicks();
+    try {
+      note('받아 적는 중…');
+      const text = await transcribe(blob, signal);
+      $('#heard').textContent = text || '(알아듣지 못함)';
+      await respondTo(text || '', signal);
+    } catch (e) {
+      if (e.name === 'AbortError') return;
+      fail(e.message);
+    }
+  }
+
+  async function respondTo(text, signal) {
+    setState('thinking');
+    startTicks();
+    note('답변 만드는 중…');
+    const s = await makeAnswer(text, signal);
+    if (signal && signal.aborted) return;
+    stopTicks();
+    abortCtl = null;
+    history.push({ role: 'user', content: 'Customer said: "' + text + '"' });
+    history.push({ role: 'assistant', content: JSON.stringify({ sentences: s }) });
+    sentences = s; idx = 0;
+    renderSentences();
+    note('');
+    await SFX.ready();
+    speakCurrent();
+  }
+
+  let speakSeq = 0;
+  async function speakCurrent() {
+    if (!sentences.length) { SFX.error(); return; }
+    renderSentences();
+    setState('speaking');
+    const mySeq = ++speakSeq;
+    await speak(sentences[idx]);
+    if (state !== 'speaking' || mySeq !== speakSeq) return;
+    if (idx >= sentences.length - 1) { setState('done'); SFX.end(); }
+    else setState('waiting');
+  }
+
+  function nextSentence() {
+    if (!sentences.length) { SFX.error(); return; }
+    if (idx >= sentences.length - 1) { SFX.end(); setState('done'); return; }
+    idx++;
+    speakCurrent();
+  }
+
+  function repeatSentence() {
+    if (!sentences.length) { SFX.error(); return; }
+    speakCurrent();
+  }
+
+  function resetAll() {
+    cancelWork();
+    stopSpeaking();
+    if (rec) { try { rec.stop(); } catch {} rec = null; }
+    releaseMic();
+    clearTimeout(recTimer);
+    history = []; sentences = []; idx = 0;
+    $('#heard').textContent = '—';
+    renderSentences();
+    note('새 고객으로 초기화했어요.');
+    setState('idle');
+    SFX.reset();
+  }
+
+  function run(action) {
+    if (!started) {
+      // a keyboard press counts as a user gesture, so sound can be unlocked here
+      begin();
+    }
+    ensureAudio();
+    switch (action) {
+      case 'listen': startListen(); break;
+      case 'answer': finishListen(); break;
+      case 'next': nextSentence(); break;
+      case 'repeat': repeatSentence(); break;
+      case 'reset': resetAll(); break;
+    }
+  }
+
+  /* ---------- start / unlock ---------- */
+  async function requestWakeLock() {
+    try { if ('wakeLock' in navigator) wakeLock = await navigator.wakeLock.request('screen'); } catch {}
+  }
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'visible' && started) requestWakeLock();
+  });
+
+  async function refreshMics() {
+    if (!navigator.mediaDevices || !navigator.mediaDevices.enumerateDevices) return;
+    try {
+      const list = (await navigator.mediaDevices.enumerateDevices()).filter(d => d.kind === 'audioinput');
+      const sel = $('#mic');
+      const saved = store.get('mic');
+      sel.innerHTML = '<option value="">기본 마이크</option>';
+      list.forEach((d, i) => {
+        if (!d.deviceId || d.deviceId === 'default') return;
+        const o = document.createElement('option');
+        o.value = d.deviceId;
+        o.textContent = d.label || ('마이크 ' + (i + 1));
+        if (d.deviceId === saved) o.selected = true;
+        sel.appendChild(o);
+      });
+    } catch {}
+  }
+
+  async function begin() {
+    if (started) return;
+    started = true;
+    ensureAudio();
+    if (synth) { try { synth.speak(new SpeechSynthesisUtterance(' ')); } catch {} }
+    $('#startCard').style.display = 'none';
+    requestWakeLock();
+    try {
+      const s = await navigator.mediaDevices.getUserMedia({ audio: true });
+      s.getTracks().forEach(t => t.stop());
+      await refreshMics();
+      note(getKey() ? '준비됐어요. 듣기 시작 버튼을 눌러 보세요.' : '설정에서 API 키를 넣어 주세요.');
+    } catch (e) {
+      note('마이크 권한이 필요해요: ' + e.message, true);
+    }
+    SFX.ready();
+  }
+  $('#startBtn').addEventListener('click', begin);
+
+  /* ---------- keyboard input ---------- */
+  document.addEventListener('keydown', e => {
+    if (e.repeat) return;
+    const binding = { t: 'key', c: e.code || e.key };
+    if (learning) { e.preventDefault(); finishLearning(binding); return; }
+    const tag = (e.target && e.target.tagName) || '';
+    if (/^(INPUT|TEXTAREA|SELECT)$/.test(tag)) return;
+    const a = actionFor(binding);
+    if (a) { e.preventDefault(); run(a); }
+  });
+
+  /* ---------- gamepad input ---------- */
+  const padPrev = {};
+  function pollPads() {
+    const pads = navigator.getGamepads ? navigator.getGamepads() : [];
+    for (const p of pads) {
+      if (!p) continue;
+      const prev = padPrev[p.index] || [];
+      p.buttons.forEach((b, i) => {
+        const pressed = b.pressed || b.value > 0.5;
+        if (pressed && !prev[i]) {
+          const binding = { t: 'pad', i };
+          if (learning) finishLearning(binding);
+          else { const a = actionFor(binding); if (a) run(a); }
+        }
+        prev[i] = pressed;
+      });
+      padPrev[p.index] = prev;
+    }
+    requestAnimationFrame(pollPads);
+  }
+  window.addEventListener('gamepadconnected', () => note('게임패드가 연결됐어요.'));
+  requestAnimationFrame(pollPads);
+
+  /* ---------- button learning ---------- */
+  function renderMap() {
+    const box = $('#mapList');
+    box.innerHTML = '';
+    for (const a of Object.keys(ACTIONS)) {
+      const row = document.createElement('div');
+      row.className = 'maprow';
+      const left = document.createElement('div');
+      const title = document.createElement('div');
+      title.textContent = ACTIONS[a];
+      const b = document.createElement('div');
+      b.className = 'b';
+      b.textContent = map[a].map(bindingLabel).join(' · ') || '없음';
+      left.append(title, b);
+      const btn = document.createElement('button');
+      btn.textContent = '바꾸기';
+      btn.addEventListener('click', () => startLearning(a));
+      row.append(left, btn);
+      box.appendChild(row);
+    }
+    renderKbdHints();
+  }
+  function startLearning(a) {
+    learning = a;
+    const bn = $('#learnBanner');
+    bn.style.display = 'block';
+    bn.textContent = `'${ACTIONS[a]}'에 쓸 버튼을 지금 눌러 주세요.`;
+  }
+  function finishLearning(binding) {
+    const a = learning;
+    learning = null;
+    for (const k of Object.keys(map)) map[k] = map[k].filter(b => !sameBinding(b, binding));
+    map[a] = [binding];
+    saveMap();
+    renderMap();
+    const bn = $('#learnBanner');
+    bn.textContent = `'${ACTIONS[a]}' ← ${bindingLabel(binding)} 연결됨`;
+    setTimeout(() => { bn.style.display = 'none'; }, 1800);
+    ensureAudio();
+    SFX.ready();
+  }
+  $('#mapReset').addEventListener('click', () => {
+    map = JSON.parse(JSON.stringify(DEFAULT_MAP));
+    saveMap(); renderMap();
+  });
+
+  /* ---------- screen buttons ---------- */
+  for (const a of Object.keys(ACTIONS)) {
+    const btn = document.createElement('button');
+    btn.innerHTML = '';
+    btn.append(ACTIONS[a]);
+    const k = document.createElement('span');
+    k.className = 'kbd';
+    k.id = 'kbd-' + a;
+    btn.appendChild(k);
+    if (a === 'listen') btn.className = 'primary';
+    btn.addEventListener('click', () => run(a));
+    $('#screenBtns').appendChild(btn);
+  }
+  function renderKbdHints() {
+    for (const a of Object.keys(ACTIONS)) {
+      const el = document.getElementById('kbd-' + a);
+      if (el) el.textContent = map[a].map(bindingLabel).join(' · ');
+    }
+  }
+
+  /* ---------- typed test ---------- */
+  $('#typedBtn').addEventListener('click', async () => {
+    const text = $('#typed').value.trim();
+    if (!text) return;
+    if (!started) await begin();
+    if (!getKey()) { fail('설정에서 OpenAI API 키를 먼저 넣어 주세요.'); return; }
+    cancelWork(); stopSpeaking();
+    $('#heard').textContent = text;
+    abortCtl = new AbortController();
+    try { await respondTo(text, abortCtl.signal); }
+    catch (e) { if (e.name !== 'AbortError') fail(e.message); }
+  });
+
+  /* ---------- settings wiring ---------- */
+  $('#apiKey').value = store.get('key');
+  $('#apiKey').addEventListener('change', e => { store.set('key', e.target.value.trim()); note(e.target.value.trim() ? 'API 키를 저장했어요.' : ''); });
+  $('#llmModel').value = store.get('llm_model');
+  $('#llmModel').addEventListener('change', e => store.set('llm_model', e.target.value.trim()));
+  $('#sttModel').value = store.get('stt_model');
+  $('#sttModel').addEventListener('change', e => store.set('stt_model', e.target.value.trim()));
+  $('#mic').addEventListener('change', e => store.set('mic', e.target.value));
+  $('#voice').addEventListener('change', e => store.set('voice', e.target.value));
+  const rateEl = $('#rate');
+  rateEl.value = store.get('rate', '0.8');
+  $('#rateVal').textContent = '×' + rateEl.value;
+  rateEl.addEventListener('input', e => { store.set('rate', e.target.value); $('#rateVal').textContent = '×' + e.target.value; });
+  $('#voiceTest').addEventListener('click', () => { ensureAudio(); speak('Thank you for waiting. Let me check that for you.'); });
+  if (navigator.mediaDevices && navigator.mediaDevices.addEventListener) {
+    navigator.mediaDevices.addEventListener('devicechange', refreshMics);
+  }
+
+  renderMap();
+  renderSentences();
+  setState('idle');
+})();
+</script>
+</body>
+</html>
